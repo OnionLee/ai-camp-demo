@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>일감 관리 — AI캠프 데모</title>
+<style>
+  :root {
+    --navy: #1e3a8a;
+    --orange: #f97316;
+    --bg: #f7f8fc;
+    --card: #ffffff;
+    --text: #1a1f36;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    font-family: -apple-system, "Pretendard", "Noto Sans KR", sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    max-width: 720px; margin: 0 auto 24px;
+  }
+  h1 {
+    font-size: 28px; margin: 0 0 4px;
+    color: var(--navy);
+  }
+  .sub { color: var(--muted); font-size: 14px; }
+  .add-box {
+    max-width: 720px; margin: 0 auto 20px;
+    display: flex; gap: 8px;
+    background: var(--card); padding: 12px;
+    border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  input[type="text"] {
+    flex: 1; padding: 12px 14px; font-size: 15px;
+    border: 1px solid var(--border); border-radius: 8px;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--navy); }
+  button.add {
+    background: var(--navy); color: #fff; border: 0;
+    padding: 0 20px; border-radius: 8px; font-weight: 600;
+    cursor: pointer; font-size: 15px;
+  }
+  button.add:hover { background: #16306b; }
+  .list { max-width: 720px; margin: 0 auto; }
+  .card {
+    background: var(--card); padding: 14px 16px;
+    border-radius: 10px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    transition: opacity .2s;
+  }
+  .card.done { opacity: .5; }
+  .card.done .title { text-decoration: line-through; }
+  .checkbox {
+    width: 20px; height: 20px; cursor: pointer;
+    accent-color: var(--navy);
+  }
+  .body { flex: 1; }
+  .title { font-size: 15px; }
+  .tags { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .tag {
+    background: #eef2ff; color: var(--navy);
+    padding: 2px 8px; border-radius: 10px;
+    font-size: 12px; font-weight: 500;
+  }
+  .tag.date { background: #fff7ed; color: var(--orange); }
+  .tag.urgent { background: #fef2f2; color: #dc2626; }
+  button.del {
+    background: transparent; border: 0; color: var(--muted);
+    font-size: 18px; cursor: pointer; padding: 4px 6px;
+  }
+  button.del:hover { color: #dc2626; }
+  .empty {
+    text-align: center; color: var(--muted);
+    padding: 40px 0; font-size: 14px;
+  }
+  .footer {
+    max-width: 720px; margin: 24px auto 0;
+    color: var(--muted); font-size: 12px;
+    text-align: center;
+  }
+  @media (max-width: 520px) {
+    h1 { font-size: 22px; }
+    .add-box { flex-direction: column; }
+    button.add { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📋 오늘의 일감</h1>
+  <div class="sub">한 줄로 추가하면 날짜·업체를 자동으로 찾아줍니다</div>
+</header>
+
+<div class="add-box">
+  <input id="input" type="text" placeholder='예) 거래처 A에 샘플 보내기, 금요일까지' />
+  <button class="add" onclick="addTask()">추가</button>
+</div>
+
+<div id="list" class="list"></div>
+
+<div class="footer">
+  AI캠프 원데이 데모 · localStorage로 자동 저장됨
+</div>
+
+<script>
+const STORAGE = 'ai-camp-tasks-v1';
+let tasks = JSON.parse(localStorage.getItem(STORAGE) || '[]');
+
+function save() { localStorage.setItem(STORAGE, JSON.stringify(tasks)); }
+
+function parseText(text) {
+  const tags = [];
+  const dateMatch = text.match(/(월|화|수|목|금|토|일)요일|(오늘|내일|모레|다음주|이번주)|(\d{1,2}[\/\-]\d{1,2})|(\d{1,2}월\s?\d{1,2}일)|(금요일까지|내일까지|오늘까지)/);
+  if (dateMatch) tags.push({ type: 'date', label: dateMatch[0] });
+  const companyMatch = text.match(/([가-힣A-Za-z0-9]+(?:몰|점|회사|업체|거래처|주점|카페|식당)|거래처\s*[A-Z])/);
+  if (companyMatch) tags.push({ type: 'company', label: companyMatch[1] });
+  if (/긴급|급함|ASAP|urgent/i.test(text)) tags.push({ type: 'urgent', label: '긴급' });
+  return tags;
+}
+
+function render() {
+  const list = document.getElementById('list');
+  if (tasks.length === 0) {
+    list.innerHTML = '<div class="empty">아직 등록된 일감이 없어요. 위에 한 줄 써보세요.</div>';
+    return;
+  }
+  list.innerHTML = tasks.map((t, i) => `
+    <div class="card ${t.done ? 'done' : ''}">
+      <input type="checkbox" class="checkbox" ${t.done ? 'checked' : ''} onchange="toggle(${i})">
+      <div class="body">
+        <div class="title">${escapeHtml(t.text)}</div>
+        ${t.tags.length ? `<div class="tags">${t.tags.map(tag =>
+          `<span class="tag ${tag.type === 'date' ? 'date' : tag.type === 'urgent' ? 'urgent' : ''}">${escapeHtml(tag.label)}</span>`
+        ).join('')}</div>` : ''}
+      </div>
+      <button class="del" onclick="del(${i})" title="삭제">✕</button>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function addTask() {
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text) return;
+  tasks.unshift({ text, tags: parseText(text), done: false, created: Date.now() });
+  input.value = '';
+  save(); render();
+}
+
+function toggle(i) { tasks[i].done = !tasks[i].done; save(); render(); }
+function del(i) { tasks.splice(i, 1); save(); render(); }
+
+document.getElementById('input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addTask();
+});
+
+render();
+</script>
+
+</body>
+</html>
